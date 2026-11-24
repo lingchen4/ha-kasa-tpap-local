@@ -1,0 +1,36 @@
+[project]
+name = "ha-kasa-tpap-local"
+version = "0.1.0"
+description = "Home Assistant custom integration for TP-Link Kasa devices using TPAP"
+license = "GPL-3.0-or-later"
+requires-python = ">=3.13"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 88
+extend-exclude = ["custom_components/kasa_tpap/vendor/tpap/crypto.py"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "ASYNC", "SIM", "RUF", "PL", "TRY", "BLE", "LOG", "G"]
+ignore = ["PLR2004", "PLR0911", "PLR0912", "PLR0913", "PLR0915", "TRY003", "TRY301", "TRY300", "RUF012"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106", "PLC0415", "BLE001", "SLF001"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["custom_components"]
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+ignore_missing_imports = true
+exclude = ["tests/"]
+
+[[tool.mypy.overrides]]
+module = ["*.vendor.tpap.crypto", "kasa_tpap.vendor.tpap.crypto"]
+ignore_errors = true

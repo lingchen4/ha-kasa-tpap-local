@@ -1,0 +1,138 @@
+{
+  "config": {
+    "flow_title": "{host}",
+    "step": {
+      "user": {
+        "title": "Add a Kasa TPAP device",
+        "description": "Turn **off** Third-Party Compatibility for the device in the TP-Link Kasa/Tapo app first. Supported: Kasa/Tapo plugs and wall switches, dimmers, energy-monitoring plugs and power strips that use the TPAP login.",
+        "menu_options": {
+          "scan": "Scan my network for devices",
+          "manual": "Enter the IP address manually"
+        }
+      },
+      "pick": {
+        "title": "Devices found on your network",
+        "description": "Pick a device and enter the TP-Link account that owns it. Your password is sent only to the device, through a password-authenticated key exchange, and is stored in Home Assistant's configuration storage.",
+        "data": {
+          "device": "Device",
+          "username": "TP-Link account email",
+          "password": "TP-Link account password",
+          "name": "Display name (optional)",
+          "scan_interval": "Polling interval"
+        },
+        "data_description": {
+          "password": "If another Kasa TPAP device already uses this account, leave empty to reuse its saved password.",
+          "name": "Leave empty to use the name stored on the device.",
+          "scan_interval": "How often the device is polled for its state, in seconds."
+        }
+      },
+      "manual": {
+        "title": "Add a device by IP address",
+        "description": "Connects directly to the device on your local network. Your password is sent only to the device, through a password-authenticated key exchange, and is stored in Home Assistant's configuration storage.",
+        "data": {
+          "host": "IP address",
+          "username": "TP-Link account email",
+          "password": "TP-Link account password",
+          "name": "Display name (optional)",
+          "scan_interval": "Polling interval"
+        },
+        "data_description": {
+          "host": "Private LAN IP address of the device, for example 192.168.50.65. Host names are not accepted.",
+          "password": "If another Kasa TPAP device already uses this account, leave empty to reuse its saved password.",
+          "name": "Leave empty to use the name stored on the device.",
+          "scan_interval": "How often the device is polled for its state, in seconds."
+        }
+      },
+      "discovery_confirm": {
+        "title": "Kasa TPAP device found",
+        "description": "A TP-Link device using the TPAP login was found at {host}. Enter the TP-Link account that owns it.",
+        "data": {
+          "username": "TP-Link account email",
+          "password": "TP-Link account password",
+          "name": "Display name (optional)",
+          "scan_interval": "Polling interval"
+        },
+        "data_description": {
+          "password": "If another Kasa TPAP device already uses this account, leave empty to reuse its saved password.",
+          "name": "Leave empty to use the name stored on the device.",
+          "scan_interval": "How often the device is polled for its state, in seconds."
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-enter the TP-Link account",
+        "description": "The device at {host} rejected the stored TP-Link credentials.",
+        "data": {
+          "username": "TP-Link account email",
+          "password": "TP-Link account password"
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure the device",
+        "description": "Change the IP address or the TP-Link account. The device must remain the same physical device. Leave the password empty to keep the stored one.",
+        "data": {
+          "host": "IP address",
+          "username": "TP-Link account email",
+          "password": "TP-Link account password"
+        }
+      }
+    },
+    "progress": {
+      "scan": "Scanning your network for Kasa TPAP devices. This can take up to a minute."
+    },
+    "error": {
+      "invalid_host": "Enter a private LAN IP address (no host names, public, loopback, link-local or multicast addresses).",
+      "invalid_auth": "The device rejected the TP-Link email or password.",
+      "device_locked": "The device has temporarily locked logins after failed attempts. Wait for the lockout to expire (usually 30 minutes or less) before trying again.",
+      "timeout": "The device did not answer in time. Check that it is powered and on the network.",
+      "cannot_connect": "The device is unreachable at this address.",
+      "tpap_discovery_failed": "The device did not answer the TPAP discovery request. Third-Party Compatibility is probably enabled for this device: turn it off in the TP-Link app, wait a minute and try again.",
+      "unsupported_protocol": "The device asks for a mode this integration does not support (TPAP over TLS, a login without the account password, or the legacy Kasa IOT request protocol).",
+      "confirmation_failed": "The device failed to prove that it knows your credentials (PAKE confirmation mismatch). The connection was refused; check that the IP address belongs to your device.",
+      "protocol_error": "The device answered with an unexpected response. Enable debug logging for details.",
+      "unknown": "Unexpected error.",
+      "password_required": "Enter the password of this TP-Link account."
+    },
+    "abort": {
+      "already_configured": "This device is already configured.",
+      "reauth_successful": "Re-authentication was successful.",
+      "reconfigure_successful": "The device was reconfigured.",
+      "wrong_device": "The address belongs to a different device than the one configured.",
+      "no_devices_found": "No unconfigured TPAP device answered on your network. Check that Third-Party Compatibility is off for the device, or add it by IP address.",
+      "not_tpap_device": "This device does not use the TPAP login supported by this integration."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Kasa TPAP Local options",
+        "data": {
+          "scan_interval": "Polling interval"
+        },
+        "data_description": {
+          "scan_interval": "How often the device is polled for its state, in seconds."
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "current_power": {
+        "name": "Current power"
+      },
+      "today_energy": {
+        "name": "Today's energy"
+      }
+    }
+  },
+  "exceptions": {
+    "auth_failed": {
+      "message": "The device rejected the stored TP-Link credentials. Re-authenticate the integration."
+    },
+    "device_locked": {
+      "message": "The device has temporarily locked logins after failed attempts."
+    },
+    "command_failed": {
+      "message": "The command failed: {error}"
+    }
+  }
+}

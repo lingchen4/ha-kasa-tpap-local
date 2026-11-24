@@ -1,0 +1,8 @@
+{
+  "name": "Kasa TPAP Local",
+  "content_in_root": false,
+  "zip_release": true,
+  "filename": "kasa_tpap.zip",
+  "homeassistant": "2026.10.0",
+  "render_readme": true
+}
