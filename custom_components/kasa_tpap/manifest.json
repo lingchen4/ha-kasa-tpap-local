@@ -307,5 +307,5 @@
     "ecdsa==0.19.2"
   ],
   "single_config_entry": false,
-  "version": "0.2.0"
+  "version": "0.3.0"
 }

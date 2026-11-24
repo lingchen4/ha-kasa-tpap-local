@@ -21,6 +21,7 @@ from homeassistant.const import (
     STATE_OFF,
     STATE_ON,
     STATE_UNAVAILABLE,
+    EntityCategory,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
@@ -36,7 +37,13 @@ from pytest_homeassistant_custom_component.components.diagnostics import (
 )
 
 from custom_components.kasa_tpap import async_remove_config_entry_device
-from custom_components.kasa_tpap.client import ChildState, DeviceInfo, EnergyState
+from custom_components.kasa_tpap.client import (
+    AutoOffState,
+    ChildState,
+    DeviceInfo,
+    EnergyState,
+    LedState,
+)
 from custom_components.kasa_tpap.const import CONF_SCAN_INTERVAL, DOMAIN
 from custom_components.kasa_tpap.exceptions import (
     TpapAuthError,
@@ -79,6 +86,15 @@ def mock_client() -> Generator[MagicMock]:
     client.async_get_components = AsyncMock(return_value=frozenset({"device"}))
     client.async_get_energy = AsyncMock()
     client.async_get_children = AsyncMock(return_value=())
+    client.async_get_led = AsyncMock(
+        return_value=LedState(rule="always", raw={"led_rule": "always"})
+    )
+    client.async_set_led = AsyncMock()
+    client.async_get_auto_off = AsyncMock(
+        return_value=AutoOffState(enabled=False, delay_min=120)
+    )
+    client.async_set_auto_off = AsyncMock()
+    client.async_reboot = AsyncMock()
     client.async_close = AsyncMock()
     with patch("custom_components.kasa_tpap.TpapClient", return_value=client):
         yield client
@@ -355,7 +371,11 @@ async def test_hs200_has_only_a_switch(
     """A plain switch gets one switch entity, no light or sensors."""
     await _setup(hass, entry)
     entities = er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
-    assert [e.entity_id for e in entities] == [ENTITY_ID]
+    assert sorted(e.entity_id for e in entities) == [
+        "button.porch_restart",
+        "sensor.porch_wi_fi_signal",
+        ENTITY_ID,
+    ]
     mock_client.async_get_energy.assert_not_awaited()
     mock_client.async_get_children.assert_not_awaited()
 
@@ -492,7 +512,7 @@ async def test_strip_base_with_energy_component(
     await _setup(hass, entry)
     mock_client.async_get_energy.assert_not_awaited()
     assert hass.states.get("switch.porch_lamp").state == STATE_ON
-    assert not hass.states.async_entity_ids("sensor")
+    assert hass.states.async_entity_ids("sensor") == ["sensor.porch_wi_fi_signal"]
 
 
 async def test_command_ok_but_readback_fails(
@@ -517,3 +537,119 @@ async def test_confirmation_failure_stops_polling_without_reauth(
     await hass.async_block_till_done()
     assert hass.states.get(ENTITY_ID).state == STATE_UNAVAILABLE
     assert not hass.config_entries.flow.async_progress_by_handler(DOMAIN)
+
+
+async def _setup_full_hs200(
+    hass: HomeAssistant, entry: MockConfigEntry, mock_client: MagicMock
+) -> None:
+    mock_client.async_get_components.return_value = frozenset(
+        {"device", "led", "auto_off"}
+    )
+    mock_client.async_get_device_info.return_value = dataclasses.replace(
+        INFO, is_on=True, on_time=600
+    )
+    await _setup(hass, entry)
+
+
+async def test_led_and_auto_off_entities(
+    hass: HomeAssistant, entry: MockConfigEntry, mock_client: MagicMock
+) -> None:
+    """HS200 settings appear as configuration entities and can be changed."""
+    await _setup_full_hs200(hass, entry, mock_client)
+    registry = er.async_get(hass)
+    for entity_id in (
+        "switch.porch_led_indicator",
+        "switch.porch_auto_off",
+        "number.porch_auto_off_delay",
+    ):
+        assert registry.async_get(entity_id).entity_category == EntityCategory.CONFIG
+    assert hass.states.get("switch.porch_led_indicator").state == STATE_ON
+    assert hass.states.get("switch.porch_auto_off").state == STATE_OFF
+    assert hass.states.get("number.porch_auto_off_delay").state == "120"
+
+    mock_client.async_get_led.return_value = LedState("never", {"led_rule": "never"})
+    await hass.services.async_call(
+        SWITCH_DOMAIN,
+        SERVICE_TURN_OFF,
+        {ATTR_ENTITY_ID: "switch.porch_led_indicator"},
+        blocking=True,
+    )
+    led_arg, enabled = mock_client.async_set_led.await_args.args
+    assert led_arg.rule == "always"
+    assert enabled is False
+    assert hass.states.get("switch.porch_led_indicator").state == STATE_OFF
+
+    mock_client.async_get_auto_off.return_value = AutoOffState(True, 120)
+    await hass.services.async_call(
+        SWITCH_DOMAIN,
+        SERVICE_TURN_ON,
+        {ATTR_ENTITY_ID: "switch.porch_auto_off"},
+        blocking=True,
+    )
+    mock_client.async_set_auto_off.assert_awaited_with(True, 120)
+    assert hass.states.get("switch.porch_auto_off").state == STATE_ON
+
+    mock_client.async_get_auto_off.return_value = AutoOffState(True, 15)
+    await hass.services.async_call(
+        "number",
+        "set_value",
+        {ATTR_ENTITY_ID: "number.porch_auto_off_delay", "value": 15},
+        blocking=True,
+    )
+    mock_client.async_set_auto_off.assert_awaited_with(True, 15)
+    assert hass.states.get("number.porch_auto_off_delay").state == "15"
+
+
+async def test_settings_are_read_once_a_minute(
+    hass: HomeAssistant, entry: MockConfigEntry, mock_client: MagicMock
+) -> None:
+    """With a 3 s interval, LED/auto-off are not re-read on every poll."""
+    hass.config_entries.async_update_entry(entry, options={CONF_SCAN_INTERVAL: 3})
+    await _setup_full_hs200(hass, entry, mock_client)
+    assert entry.runtime_data.update_interval == timedelta(seconds=3)
+    led_reads = mock_client.async_get_led.await_count
+    info_reads = mock_client.async_get_device_info.await_count
+    for _ in range(5):
+        async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=4))
+        await hass.async_block_till_done()
+    assert mock_client.async_get_device_info.await_count > info_reads
+    assert mock_client.async_get_led.await_count == led_reads
+
+
+async def test_diagnostic_sensors(
+    hass: HomeAssistant, entry: MockConfigEntry, mock_client: MagicMock
+) -> None:
+    """Wi-Fi signal and On since are diagnostic sensors."""
+    await _setup_full_hs200(hass, entry, mock_client)
+    registry = er.async_get(hass)
+    signal = hass.states.get("sensor.porch_wi_fi_signal")
+    assert signal.state == "-32"
+    assert signal.attributes["unit_of_measurement"] == "dBm"
+    on_since = hass.states.get("sensor.porch_on_since")
+    assert on_since is not None
+    since = dt_util.parse_datetime(on_since.state)
+    assert abs((dt_util.utcnow() - since).total_seconds() - 600) < 5
+    for entity_id in ("sensor.porch_wi_fi_signal", "sensor.porch_on_since"):
+        assert (
+            registry.async_get(entity_id).entity_category == EntityCategory.DIAGNOSTIC
+        )
+
+    mock_client.async_get_device_info.return_value = dataclasses.replace(
+        INFO, is_on=False, on_time=0
+    )
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=31))
+    await hass.async_block_till_done()
+    assert hass.states.get("sensor.porch_on_since").state == "unknown"
+
+
+async def test_restart_button(
+    hass: HomeAssistant, entry: MockConfigEntry, mock_client: MagicMock
+) -> None:
+    """The restart button reboots without waiting for a read-back."""
+    await _setup(hass, entry)
+    reads = mock_client.async_get_device_info.await_count
+    await hass.services.async_call(
+        "button", "press", {ATTR_ENTITY_ID: "button.porch_restart"}, blocking=True
+    )
+    mock_client.async_reboot.assert_awaited_once()
+    assert mock_client.async_get_device_info.await_count == reads

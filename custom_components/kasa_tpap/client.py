@@ -76,6 +76,7 @@ MAX_LOCKOUT_MINUTES = 24 * 60
 # Bounds for power strips' child lists.
 MAX_CHILD_PAGES = 10
 MAX_CHILDREN = 64
+MAX_AUTO_OFF_MINUTES = 24 * 60
 
 # The only SPAKE2+ suite and session cipher offered; the device must pick them.
 OFFERED_CIPHER_SUITE = 1
@@ -165,6 +166,7 @@ class DeviceInfo:
     rssi: int | None
     device_type: str | None = None
     brightness: int | None = None  # 0-100 on dimmers
+    on_time: int | None = None  # seconds the relay has been on
 
     @classmethod
     def from_result(cls, result: dict[str, Any]) -> DeviceInfo:
@@ -195,10 +197,32 @@ class DeviceInfo:
             is_on=device_on,
             rssi=_as_int(result.get("rssi")),
             device_type=text("type"),
+            on_time=_as_int(result.get("on_time")),
             brightness=brightness
             if brightness is not None and 0 <= brightness <= 100
             else None,
         )
+
+
+@dataclass(frozen=True, slots=True)
+class LedState:
+    """The status LED setting (``get_led_info``)."""
+
+    rule: str  # "always", "never", "toggle" (on while the relay is on), ...
+    raw: dict[str, Any]  # sent back with set_led_info, as python-kasa does
+
+    @property
+    def is_on(self) -> bool:
+        """The LED is enabled unless its rule is "never"."""
+        return self.rule != "never"
+
+
+@dataclass(frozen=True, slots=True)
+class AutoOffState:
+    """The auto-off timer setting (``get_auto_off_config``)."""
+
+    enabled: bool
+    delay_min: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -378,6 +402,44 @@ class TpapClient:
         await self.async_request(
             "set_device_info", {"device_on": True, "brightness": brightness}
         )
+
+    async def async_get_led(self) -> LedState:
+        """Return the status LED setting."""
+        result = await self.async_request("get_led_info")
+        rule = result.get("led_rule")
+        if not isinstance(rule, str):
+            raise TpapProtocolError("get_led_info returned an unexpected shape")
+        return LedState(rule=rule, raw=result)
+
+    async def async_set_led(self, current: LedState, enabled: bool) -> None:
+        """Turn the status LED on ("always") or off ("never")."""
+        await self.async_request(
+            "set_led_info",
+            {**current.raw, "led_rule": "always" if enabled else "never"},
+        )
+
+    async def async_get_auto_off(self) -> AutoOffState:
+        """Return the auto-off timer setting."""
+        result = await self.async_request("get_auto_off_config", {"start_index": 0})
+        enabled = result.get("enable")
+        delay = _as_int(result.get("delay_min"))
+        if not isinstance(enabled, bool) or delay is None:
+            raise TpapProtocolError("get_auto_off_config returned an unexpected shape")
+        return AutoOffState(enabled=enabled, delay_min=delay)
+
+    async def async_set_auto_off(self, enabled: bool, delay_min: int) -> None:
+        """Set the auto-off timer (delay in minutes)."""
+        if not 1 <= delay_min <= MAX_AUTO_OFF_MINUTES:
+            raise ValueError(f"delay must be 1-{MAX_AUTO_OFF_MINUTES} minutes")
+        await self.async_request(
+            "set_auto_off_config", {"enable": enabled, "delay_min": delay_min}
+        )
+
+    async def async_reboot(self) -> None:
+        """Restart the device; the session ends with it."""
+        await self.async_request("device_reboot", {"delay": 1})
+        async with self._lock:
+            self._drop_session()
 
     async def async_get_components(self) -> frozenset[str]:
         """Return the component ids the device announces (``component_nego``).

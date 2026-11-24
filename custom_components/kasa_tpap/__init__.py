@@ -18,7 +18,13 @@ from .client import TpapClient
 from .const import DOMAIN, MANUFACTURER
 from .coordinator import KasaTpapCoordinator
 
-PLATFORMS: list[Platform] = [Platform.LIGHT, Platform.SENSOR, Platform.SWITCH]
+PLATFORMS: list[Platform] = [
+    Platform.BUTTON,
+    Platform.LIGHT,
+    Platform.NUMBER,
+    Platform.SENSOR,
+    Platform.SWITCH,
+]
 
 type KasaTpapConfigEntry = ConfigEntry[KasaTpapCoordinator]
 

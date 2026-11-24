@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import ChildDeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -37,6 +38,10 @@ async def async_setup_entry(
                 sorted(coordinator.data.children, key=lambda c: c.position or 0), 1
             )
         )
+    if coordinator.data.led is not None:
+        entities.append(KasaTpapLedSwitch(coordinator))
+    if coordinator.data.auto_off is not None:
+        entities.append(KasaTpapAutoOffSwitch(coordinator))
     async_add_entities(entities)
 
 
@@ -125,3 +130,81 @@ class KasaTpapOutletSwitch(CoordinatorEntity[KasaTpapCoordinator], SwitchEntity)
         await self.coordinator.async_command(
             lambda: client.async_set_child_on(child_id, False)
         )
+
+
+class KasaTpapLedSwitch(KasaTpapEntity, SwitchEntity):
+    """The device's status LED ("always" when on, "never" when off)."""
+
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_translation_key = "led"
+
+    def __init__(self, coordinator: KasaTpapCoordinator) -> None:
+        """Create the entity."""
+        super().__init__(coordinator, "led")
+
+    @property
+    def available(self) -> bool:
+        """Unavailable while the LED setting is unknown."""
+        return super().available and self.coordinator.data.led is not None
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return whether the LED is enabled."""
+        led = self.coordinator.data.led
+        return led.is_on if led else None
+
+    async def _async_set(self, enabled: bool) -> None:
+        led = self.coordinator.data.led
+        if led is None:
+            return
+        client = self.coordinator.client
+        await self.coordinator.async_command(
+            lambda: client.async_set_led(led, enabled), settings_changed=True
+        )
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Enable the LED."""
+        await self._async_set(True)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Disable the LED."""
+        await self._async_set(False)
+
+
+class KasaTpapAutoOffSwitch(KasaTpapEntity, SwitchEntity):
+    """Whether the relay turns itself off after the auto-off delay."""
+
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_translation_key = "auto_off"
+
+    def __init__(self, coordinator: KasaTpapCoordinator) -> None:
+        """Create the entity."""
+        super().__init__(coordinator, "auto_off")
+
+    @property
+    def available(self) -> bool:
+        """Unavailable while the auto-off setting is unknown."""
+        return super().available and self.coordinator.data.auto_off is not None
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return whether auto-off is enabled."""
+        auto_off = self.coordinator.data.auto_off
+        return auto_off.enabled if auto_off else None
+
+    async def _async_set(self, enabled: bool) -> None:
+        auto_off = self.coordinator.data.auto_off
+        if auto_off is None:
+            return
+        client, delay = self.coordinator.client, auto_off.delay_min
+        await self.coordinator.async_command(
+            lambda: client.async_set_auto_off(enabled, delay), settings_changed=True
+        )
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Enable auto-off."""
+        await self._async_set(True)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Disable auto-off."""
+        await self._async_set(False)

@@ -23,7 +23,7 @@
         "data_description": {
           "password": "If another Kasa TPAP device already uses this account, leave empty to reuse its saved password.",
           "name": "Leave empty to use the name stored on the device.",
-          "scan_interval": "How often the device is polled for its state, in seconds."
+          "scan_interval": "How often the device is polled for its state, in seconds (3–300). Short intervals mean more requests to the device; the LED and auto-off settings are still read only once a minute."
         }
       },
       "manual": {
@@ -40,7 +40,7 @@
           "host": "Private LAN IP address of the device, for example 192.168.50.65. Host names are not accepted.",
           "password": "If another Kasa TPAP device already uses this account, leave empty to reuse its saved password.",
           "name": "Leave empty to use the name stored on the device.",
-          "scan_interval": "How often the device is polled for its state, in seconds."
+          "scan_interval": "How often the device is polled for its state, in seconds (3–300). Short intervals mean more requests to the device; the LED and auto-off settings are still read only once a minute."
         }
       },
       "discovery_confirm": {
@@ -55,7 +55,7 @@
         "data_description": {
           "password": "If another Kasa TPAP device already uses this account, leave empty to reuse its saved password.",
           "name": "Leave empty to use the name stored on the device.",
-          "scan_interval": "How often the device is polled for its state, in seconds."
+          "scan_interval": "How often the device is polled for its state, in seconds (3–300). Short intervals mean more requests to the device; the LED and auto-off settings are still read only once a minute."
         }
       },
       "reauth_confirm": {
@@ -109,18 +109,37 @@
           "scan_interval": "Polling interval"
         },
         "data_description": {
-          "scan_interval": "How often the device is polled for its state, in seconds."
+          "scan_interval": "How often the device is polled for its state, in seconds (3–300). Short intervals mean more requests to the device; the LED and auto-off settings are still read only once a minute."
         }
       }
     }
   },
   "entity": {
+    "number": {
+      "auto_off_delay": {
+        "name": "Auto-off delay"
+      }
+    },
     "sensor": {
       "current_power": {
         "name": "Current power"
       },
       "today_energy": {
         "name": "Today's energy"
+      },
+      "rssi": {
+        "name": "Wi-Fi signal"
+      },
+      "on_since": {
+        "name": "On since"
+      }
+    },
+    "switch": {
+      "led": {
+        "name": "LED indicator"
+      },
+      "auto_off": {
+        "name": "Auto-off"
       }
     }
   },

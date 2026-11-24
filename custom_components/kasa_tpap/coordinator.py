@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import timedelta
@@ -12,12 +13,20 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .client import ChildState, DeviceInfo, EnergyState, TpapClient
+from .client import (
+    AutoOffState,
+    ChildState,
+    DeviceInfo,
+    EnergyState,
+    LedState,
+    TpapClient,
+)
 from .const import (
     CONF_SCAN_INTERVAL,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     MAX_BACKOFF_INTERVAL,
+    SETTINGS_REFRESH_INTERVAL,
 )
 from .exceptions import (
     TpapAuthError,
@@ -35,6 +44,8 @@ _LOGGER = logging.getLogger(__name__)
 COMPONENT_BRIGHTNESS = "brightness"
 COMPONENT_ENERGY = "energy_monitoring"
 COMPONENT_CHILDREN = "control_child"
+COMPONENT_LED = "led"
+COMPONENT_AUTO_OFF = "auto_off"
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +55,8 @@ class DeviceSnapshot:
     info: DeviceInfo
     energy: EnergyState | None = None
     children: tuple[ChildState, ...] = ()
+    led: LedState | None = None
+    auto_off: AutoOffState | None = None
 
     def child(self, child_id: str) -> ChildState | None:
         """Return the outlet with this id, if the device still reports it."""
@@ -70,6 +83,8 @@ class KasaTpapCoordinator(DataUpdateCoordinator[DeviceSnapshot]):
         self.components: frozenset[str] = frozenset()
         # Device-registry id of the device, set at setup; outlets refer to it.
         self.device_id: str | None = None
+        # Monotonic time the slow-changing settings were last read.
+        self._settings_read_at: float | None = None
         self._base_interval = timedelta(
             seconds=entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
         )
@@ -91,6 +106,16 @@ class KasaTpapCoordinator(DataUpdateCoordinator[DeviceSnapshot]):
     def has_energy(self) -> bool:
         """Whether the device measures power and energy."""
         return COMPONENT_ENERGY in self.components
+
+    @property
+    def has_led(self) -> bool:
+        """Whether the device has a controllable status LED."""
+        return COMPONENT_LED in self.components
+
+    @property
+    def has_auto_off(self) -> bool:
+        """Whether the device has an auto-off timer for its relay."""
+        return COMPONENT_AUTO_OFF in self.components
 
     @property
     def has_children(self) -> bool:
@@ -115,7 +140,42 @@ class KasaTpapCoordinator(DataUpdateCoordinator[DeviceSnapshot]):
             except TpapDeviceError as err:
                 _LOGGER.debug("Energy reading refused: %s", err)
         children = await self.client.async_get_children() if self.has_children else ()
-        return DeviceSnapshot(info=info, energy=energy, children=children)
+        led, auto_off = await self._fetch_settings(info)
+        return DeviceSnapshot(
+            info=info, energy=energy, children=children, led=led, auto_off=auto_off
+        )
+
+    async def _fetch_settings(
+        self, info: DeviceInfo
+    ) -> tuple[LedState | None, AutoOffState | None]:
+        """Read LED and auto-off, at most once per SETTINGS_REFRESH_INTERVAL.
+
+        Between reads the previous values are reused, so short polling
+        intervals do not multiply the requests the device has to answer. A
+        refused request leaves that setting unknown without failing the poll.
+        """
+        previous = self.data
+        now = time.monotonic()
+        if (
+            previous is not None
+            and self._settings_read_at is not None
+            and now - self._settings_read_at < SETTINGS_REFRESH_INTERVAL.total_seconds()
+        ):
+            return previous.led, previous.auto_off
+        led: LedState | None = None
+        auto_off: AutoOffState | None = None
+        if self.has_led:
+            try:
+                led = await self.client.async_get_led()
+            except TpapDeviceError as err:
+                _LOGGER.debug("LED setting refused: %s", err)
+        if self.has_auto_off and info.is_on is not None:
+            try:
+                auto_off = await self.client.async_get_auto_off()
+            except TpapDeviceError as err:
+                _LOGGER.debug("Auto-off setting refused: %s", err)
+        self._settings_read_at = now
+        return led, auto_off
 
     def _translate(self, err: TpapError) -> Exception:
         if isinstance(err, TpapDeviceLockedError):
@@ -144,9 +204,17 @@ class KasaTpapCoordinator(DataUpdateCoordinator[DeviceSnapshot]):
         self.update_interval = self._base_interval
         return snapshot
 
-    async def async_command(self, command: Callable[[], Awaitable[None]]) -> None:
+    async def async_command(
+        self,
+        command: Callable[[], Awaitable[None]],
+        *,
+        settings_changed: bool = False,
+        read_back: bool = True,
+    ) -> None:
         """Run a command, then publish the state the device reports afterwards.
 
+        ``settings_changed`` makes the read-back include LED and auto-off;
+        ``read_back=False`` skips it (a rebooting device cannot answer).
         async_set_updated_data also reschedules the next poll.
         """
         try:
@@ -168,6 +236,10 @@ class KasaTpapCoordinator(DataUpdateCoordinator[DeviceSnapshot]):
                 translation_key="command_failed",
                 translation_placeholders={"error": str(err)},
             ) from err
+        if settings_changed:
+            self._settings_read_at = None
+        if not read_back:
+            return
         try:
             snapshot = await self._fetch()
         except TpapError:

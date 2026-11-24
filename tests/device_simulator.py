@@ -71,6 +71,18 @@ class SimulatedDevice:
     energy: dict[str, Any] | None = None  # get_energy_usage result
     current_power_w: float | None = None  # get_current_power result
     children: list[dict[str, Any]] = field(default_factory=list)
+    on_time: int = 0
+    led: dict[str, Any] = field(
+        default_factory=lambda: {
+            "led_rule": "toggle",
+            "led_status": True,
+            "night_mode": {"night_mode_type": "custom", "start_time": 1320},
+        }
+    )
+    auto_off: dict[str, Any] = field(
+        default_factory=lambda: {"delay_min": 120, "enable": False}
+    )
+    reboots: int = 0
     child_page_size: int = 2
     tpap: dict[str, Any] = field(
         default_factory=lambda: {"tls": 0, "pake": [2], "dac": 0}
@@ -295,6 +307,7 @@ class SimulatedDevice:
                 result["device_on"] = self.is_on
             if self.brightness is not None:
                 result["brightness"] = self.brightness
+            result["on_time"] = self.on_time if self.is_on else 0
             return {"error_code": 0, "result": result}
         if method == "set_device_info":
             if "device_on" in params:
@@ -317,6 +330,22 @@ class SimulatedDevice:
                     "sum": len(self.children),
                 },
             }
+        if method == "get_led_info":
+            return {"error_code": 0, "result": dict(self.led)}
+        if method == "set_led_info":
+            self.led = dict(params)
+            return {"error_code": 0}
+        if method == "get_auto_off_config":
+            return {"error_code": 0, "result": dict(self.auto_off)}
+        if method == "set_auto_off_config":
+            self.auto_off = {
+                "delay_min": params["delay_min"],
+                "enable": params["enable"],
+            }
+            return {"error_code": 0}
+        if method == "device_reboot":
+            self.reboots += 1
+            return {"error_code": 0}
         if method == "control_child":
             child = next(
                 (c for c in self.children if c["device_id"] == params["device_id"]),

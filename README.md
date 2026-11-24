@@ -18,7 +18,7 @@ longer talk to (python-kasa issue
 - Security notes: [SECURITY.md](SECURITY.md). Dependencies and upstream code: [DEPENDENCIES.md](DEPENDENCIES.md).
 
 > **Status.** The protocol code is tested against a simulated device that
-> runs the real SPAKE2+ exchange (141 automated tests). It has **not yet
+> runs the real SPAKE2+ exchange (149 automated tests). It has **not yet
 > been run against physical hardware** by the author. Use the
 > [smoke test](#manual-smoke-test-on-the-real-hs200) first.
 
@@ -34,6 +34,22 @@ these components works.
 | Dimmer (`brightness`) | KS225, HS220 | `light` with brightness |
 | Energy-monitoring plug (`energy_monitoring`) | KP125M, EP25, P110 | `switch`, plus *Current power* (W) and *Today's energy* (kWh) sensors |
 | Power strip (`control_child`) | EP40M, P300 | one `switch` per outlet, each its own sub-device |
+
+Extra entities, where the device reports the component:
+
+| Feature | Entity | Category |
+|---|---|---|
+| Status LED (`led`) | *LED indicator* switch (on = always, off = never) | Configuration |
+| Auto-off timer (`auto_off`) | *Auto-off* switch and *Auto-off delay* number (1–1440 min) | Configuration |
+| Restart | *Restart* button (offline for about 30 s, reconnects automatically) | Configuration |
+| Wi-Fi signal | *Wi-Fi signal* sensor (dBm) | Diagnostic |
+| Relay on-time | *On since* timestamp sensor (unknown while off) | Diagnostic |
+
+For the porch HS200 that means `switch.porch`, `switch.porch_led_indicator`,
+`switch.porch_auto_off`, `number.porch_auto_off_delay`, `button.porch_restart`,
+`sensor.porch_wi_fi_signal` and `sensor.porch_on_since`. Configuration and
+diagnostic entities appear in their own sections of the device page and are
+not exposed to HomeKit Bridge unless you include them.
 
 Not supported: bulbs and colour lights, cameras, hubs, robot vacuums, legacy
 IOT-protocol Kasa devices, and TPAP over TLS. Devices still on KLAP/AES stay
@@ -142,7 +158,11 @@ and submit.
    Kasa TPAP device is already configured, its email is pre-filled; leave the
    password empty to reuse the saved one.
 4. Optional: a **Display name** (empty uses the device's own name) and a
-   **Polling interval** (default 30 s, 10–300 s).
+   **Polling interval** (default 30 s, 3–300 s). Each poll reads the on/off
+   state (plus energy or outlets where present). The LED and auto-off
+   settings are read at most once a minute, and right after you change them.
+   Short intervals still mean a request every few seconds to a small device,
+   so keep 3–5 s for devices where quick wall-switch feedback matters.
 5. Submit. The integration logs in to the device for real before it creates
    the entry, so any problem shows up right away (see
    [Troubleshooting](#troubleshooting)).
@@ -250,7 +270,7 @@ Nothing else is changed by this integration, so no further cleanup is needed.
 uv venv --python 3.14 .venv
 uv pip install --python .venv/bin/python \
   "pytest-homeassistant-custom-component==0.13.375" "ecdsa==0.19.2" ruff mypy
-.venv/bin/python -m pytest              # 141 tests
+.venv/bin/python -m pytest              # 149 tests
 .venv/bin/ruff check . && .venv/bin/ruff format --check .
 .venv/bin/mypy custom_components        # strict
 scripts/build_zip.sh                    # dist/kasa_tpap-<version>.zip, dist/kasa_tpap.zip + .sha256

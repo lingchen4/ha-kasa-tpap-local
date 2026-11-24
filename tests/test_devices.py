@@ -170,3 +170,46 @@ async def test_probe_does_not_follow_redirects(
         client = TpapClient("127.0.0.1", "", "", session, port=device.port)
         with pytest.raises(TpapProtocolError, match="redirect"):
             await client.async_discover()
+
+
+async def test_led_setting(device: SimulatedDevice, make_client: MakeClient) -> None:
+    """LED rule is read and written back with the other LED fields kept."""
+    client = make_client()
+    led = await client.async_get_led()
+    assert led.rule == "toggle"
+    assert led.is_on is True  # anything but "never"
+    await client.async_set_led(led, False)
+    assert device.led["led_rule"] == "never"
+    assert device.led["night_mode"] == {"night_mode_type": "custom", "start_time": 1320}
+    assert (await client.async_get_led()).is_on is False
+
+
+async def test_auto_off_setting(
+    device: SimulatedDevice, make_client: MakeClient
+) -> None:
+    """Auto-off is read with start_index and written as enable + delay."""
+    client = make_client()
+    state = await client.async_get_auto_off()
+    assert (state.enabled, state.delay_min) == (False, 120)
+    assert device.requests[-1]["params"] == {"start_index": 0}
+    await client.async_set_auto_off(True, 15)
+    assert device.auto_off == {"delay_min": 15, "enable": True}
+    with pytest.raises(ValueError):
+        await client.async_set_auto_off(True, 0)
+
+
+async def test_reboot_drops_session(
+    device: SimulatedDevice, make_client: MakeClient
+) -> None:
+    """A reboot request ends the session; the next request logs in again."""
+    client = make_client()
+    await client.async_reboot()
+    assert device.reboots == 1
+    assert device.requests[-1]["params"] == {"delay": 1}
+    assert not client.has_session
+
+
+async def test_on_time(device: SimulatedDevice, make_client: MakeClient) -> None:
+    """on_time is parsed from get_device_info."""
+    device.is_on, device.on_time = True, 3600
+    assert (await make_client().async_get_device_info()).on_time == 3600
